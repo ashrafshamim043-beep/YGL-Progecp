@@ -1,0 +1,259 @@
+name: CI
+
+# ============================================================================
+# LOCATION FIX (2026-09-10): this file must live at the REPOSITORY ROOT
+# (.github/workflows/ci.yml), not inside YGL_Office_System_Complete_5/. GitHub
+# Actions only discovers workflow files under repo-root .github/workflows/ --
+# it never scanned this pipeline while it sat one level down, which is why
+# this repo has 0 recorded workflow runs to date despite this file existing
+# since 2026-09-06.
+#
+# Every change below vs. the original file is a PATH PREFIX ONLY --
+# "YGL_Office_System_Complete_5/" added in front of every script path and
+# every working-directory value, because actions/checkout still checks out
+# the whole repo (this file did not move the project itself, only itself).
+# No job, no step, no business logic, no test, no gate order, no Commission
+# Engine reference, and no environment variable was changed in any other way.
+# ============================================================================
+
+# Gate order (per Recommended Technical Stack Section 9 and Roadmap
+# Sub-phase 8.3 requirement): Commission Engine integrity and its 79-test
+# suite run FIRST and must pass before anything else executes. If either
+# fails, the pipeline stops immediately -- Office System tests never even
+# start, because a Commission Engine violation is more severe than any
+# Office System bug.
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  commission-engine-integrity:
+    name: "1. Commission Engine integrity (checksum)"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python YGL_Office_System_Complete_5/scripts/verify_commission_engine_integrity.py
+
+  commission-engine-tests:
+    name: "2. Commission Engine 79-test permanent gate"
+    needs: commission-engine-integrity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python YGL_Office_System_Complete_5/scripts/run_commission_engine_tests.py
+
+  import-boundary:
+    name: "3. Commission Engine import-boundary check"
+    needs: [commission-engine-integrity, commission-engine-tests]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python YGL_Office_System_Complete_5/scripts/verify_import_boundary.py
+
+  office-system-tests:
+    name: "4. Office System unit/integration tests"
+    needs: [commission-engine-integrity, commission-engine-tests, import-boundary]
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: ygl_office_test
+          POSTGRES_USER: ygl_test
+          POSTGRES_PASSWORD: test_only
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install backend dependencies
+        working-directory: YGL_Office_System_Complete_5/backend
+        run: pip install -e ".[dev]"
+      - name: Run Office System tests
+        working-directory: YGL_Office_System_Complete_5/backend
+        env:
+          DATABASE_URL: postgresql+psycopg://ygl_test:test_only@localhost:5432/ygl_office_test
+          REDIS_URL: redis://localhost:6379/0
+          JWT_SECRET_KEY: ci_test_only_not_secure
+        run: pytest tests/office_system -v
+
+  # =========================================================================
+  # Gate 1, Steps 5-12 -- Real environment verification (PostgreSQL/Redis
+  # actually running, migrations actually executed, app actually started,
+  # HTTP/security/integration actually exercised). Added per explicit
+  # Business Owner approval ("APPROVAL: EXTEND CI FOR GATE 1 STEPS 5-12").
+  # Jobs 1-4 above are completely unmodified. Each job below provisions its
+  # own fresh, disposable service containers -- GitHub Actions services are
+  # job-scoped, so migration-execution+schema-verification share one job
+  # (same live DB across steps), and app-startup+API+security+integration
+  # share a second job, each starting from its own fresh database.
+  # =========================================================================
+
+  postgres-redis-connectivity:
+    name: "5. PostgreSQL + Redis connectivity"
+    needs: office-system-tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: ygl_office_ci
+          POSTGRES_USER: ygl_ci
+          POSTGRES_PASSWORD: ci_disposable_not_a_real_secret
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - name: Verify PostgreSQL reachable
+        run: |
+          sudo apt-get install -y postgresql-client
+          pg_isready -h localhost -p 5432 -U ygl_ci
+      - name: Verify Redis reachable
+        run: |
+          sudo apt-get install -y redis-tools
+          redis-cli -h localhost -p 6379 ping
+
+  migration-schema-verification:
+    name: "6+7. Live migration execution + schema verification"
+    needs: postgres-redis-connectivity
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: ygl_office_ci
+          POSTGRES_USER: ygl_ci
+          POSTGRES_PASSWORD: ci_disposable_not_a_real_secret
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgresql+psycopg://ygl_ci:ci_disposable_not_a_real_secret@localhost:5432/ygl_office_ci
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install backend dependencies
+        working-directory: YGL_Office_System_Complete_5/backend
+        run: pip install -e ".[dev]"
+      - name: "Step 6: alembic upgrade head (0001 -> 0007)"
+        working-directory: YGL_Office_System_Complete_5/backend
+        run: alembic upgrade head
+      - name: "Step 6b: migration downgrade + re-upgrade round-trip (proves downgrade() works, not just upgrade())"
+        working-directory: YGL_Office_System_Complete_5/backend
+        run: |
+          alembic downgrade -1
+          alembic upgrade head
+      - name: "Step 7: real schema verification"
+        run: python YGL_Office_System_Complete_5/scripts/verify_schema.py
+
+  app-startup-http-verification:
+    name: "8-11. App startup + API + Security + Integration verification"
+    needs: migration-schema-verification
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: ygl_office_ci
+          POSTGRES_USER: ygl_ci
+          POSTGRES_PASSWORD: ci_disposable_not_a_real_secret
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+    env:
+      DATABASE_URL: postgresql+psycopg://ygl_ci:ci_disposable_not_a_real_secret@localhost:5432/ygl_office_ci
+      REDIS_URL: redis://localhost:6379/0
+      JWT_SECRET_KEY: ci_disposable_jwt_secret_not_real
+      SUMSUB_WEBHOOK_SECRET: ci_disposable_webhook_secret_not_real
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install backend dependencies
+        working-directory: YGL_Office_System_Complete_5/backend
+        run: pip install -e ".[dev]"
+      - name: "Step 6 (fresh DB for this job): alembic upgrade head"
+        working-directory: YGL_Office_System_Complete_5/backend
+        run: alembic upgrade head
+      - name: Seed disposable CI test admins (never production data)
+        run: python YGL_Office_System_Complete_5/scripts/ci_seed_test_admin.py
+      - name: "Step 8: start application in background"
+        working-directory: YGL_Office_System_Complete_5/backend
+        run: |
+          nohup uvicorn app.main:app --host 0.0.0.0 --port 8000 > /tmp/app.log 2>&1 &
+          for i in $(seq 1 20); do
+            curl -sf http://localhost:8000/health && break
+            sleep 1
+          done
+          curl -sf http://localhost:8000/health || (cat /tmp/app.log; exit 1)
+      - name: "Step 9 + 10: API + Security verification (HTTP-level)"
+        run: python YGL_Office_System_Complete_5/scripts/ci_live_verification.py
+      - name: "Step 11: Integration verification (real DB, real adapters)"
+        run: python YGL_Office_System_Complete_5/scripts/ci_verify_integration_db.py
+      - name: "Step 11b: 3-Account Policy real PostgreSQL + concurrency verification"
+        run: python YGL_Office_System_Complete_5/scripts/ci_verify_three_account_policy_db.py
+      - name: Show application log on failure
+        if: failure()
+        run: cat /tmp/app.log || true
+
+  gate1-report:
+    name: "12. Gate 1 consolidated report"
+    needs: [commission-engine-integrity, commission-engine-tests, import-boundary, office-system-tests,
+            postgres-redis-connectivity, migration-schema-verification, app-startup-http-verification]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Consolidated Gate 1 result
+        run: |
+          echo "1-4 (baseline): ${{ needs.commission-engine-integrity.result }} / ${{ needs.commission-engine-tests.result }} / ${{ needs.import-boundary.result }} / ${{ needs.office-system-tests.result }}"
+          echo "5 (connectivity): ${{ needs.postgres-redis-connectivity.result }}"
+          echo "6-7 (migration+schema): ${{ needs.migration-schema-verification.result }}"
+          echo "8-11 (app+api+security+integration): ${{ needs.app-startup-http-verification.result }}"
+          if [ "${{ needs.commission-engine-integrity.result }}" = "success" ] && \
+             [ "${{ needs.commission-engine-tests.result }}" = "success" ] && \
+             [ "${{ needs.import-boundary.result }}" = "success" ] && \
+             [ "${{ needs.office-system-tests.result }}" = "success" ] && \
+             [ "${{ needs.postgres-redis-connectivity.result }}" = "success" ] && \
+             [ "${{ needs.migration-schema-verification.result }}" = "success" ] && \
+             [ "${{ needs.app-startup-http-verification.result }}" = "success" ]; then
+            echo "GATE 1 STATUS: PASS"
+          else
+            echo "GATE 1 STATUS: BLOCKED/FAILED"
+            exit 1
+          fi
