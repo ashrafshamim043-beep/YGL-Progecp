@@ -85,11 +85,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Install backend dependencies
-        working directory backend
+      - name: Install backend :dependencies
+        working: directory:backend
         run: pip install -e ".[dev]"
       - name: Run Office System tests
-        working-directory backend
+        working-directory: backend
         env:
           DATABASE_URL: postgresql+psycopg://ygl_test:test_only@localhost:5432/ygl_office_test
           REDIS_URL: redis://localhost:6379/0
