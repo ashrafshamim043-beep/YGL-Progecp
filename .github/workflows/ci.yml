@@ -35,7 +35,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+        python-version: "3.12"
       - run: python scripts/verify_commission_engine_integrity.py
 
   commission-engine-tests:
@@ -86,7 +86,7 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install backend dependencies
-        working: directory: backend
+        working : backend
         run: pip install -e ".[dev]"
       - name: Run Office System tests
         working:directory: backend
@@ -209,17 +209,18 @@ jobs:
              working :directory :backend
         run: pip install -e ".[dev]"
       - name: "Step 6 (fresh DB for this job): alembic upgrade head"
-             working: backend
+      - working : backend
         run: alembic upgrade head
       - name: Seed disposable CI test admins (never production data)
         run: python scripts/ci_seed_test_admin.py
       - name: "Step 8: start application in background"
-             working : backend
-        run: 
-          nohup uvicorn app.main:app --host 0.0.0.0 --port 8000 > /tmp/app.log 2>&1 &
+      
+      -  working :directory: backend  
+      - run
+      -   hup uvicorn app.main:app --host 0.0.0.0 --port 8000 > /tmp/app.log 2>&1 &
           for i in $(seq 1 20); do
             curl -sf http://localhost:8000/health && break
-            sleep 1
+            sleep
           done
           curl -sf http://localhost:8000/health || (cat /tmp/app.log; exit 1)
       - name: "Step 9 + 10: API + Security verification (HTTP-level)"
