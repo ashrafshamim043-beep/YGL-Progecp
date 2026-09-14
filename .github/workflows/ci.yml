@@ -1,4 +1,4 @@
-name: CI
+name: CI 
 
 # ============================================================================
 # LOCATION FIX (2026-09-10): this file must live at the REPOSITORY ROOT
@@ -256,4 +256,4 @@ jobs:
           else
             echo "GATE 1 STATUS: BLOCKED/FAILED"
             exit 1
-          fi
+          fi 
