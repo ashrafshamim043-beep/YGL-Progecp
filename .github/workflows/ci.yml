@@ -36,7 +36,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: python YGL_Office_System_Complete_5/scripts/verify_commission_engine_integrity.py
+      - run: python scripts/verify_commission_engine_integrity.py
 
   commission-engine-tests:
     name: "2. Commission Engine 79-test permanent gate"
@@ -47,7 +47,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: python YGL_Office_System_Complete_5/scripts/run_commission_engine_tests.py
+      - run: python scripts/run_commission_engine_tests.py
 
   import-boundary:
     name: "3. Commission Engine import-boundary check"
@@ -58,7 +58,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: python YGL_Office_System_Complete_5/scripts/verify_import_boundary.py
+      - run: python scripts/verify_import_boundary.py
 
   office-system-tests:
     name: "4. Office System unit/integration tests"
@@ -86,10 +86,10 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install backend dependencies
-        working-directory: YGL_Office_System_Complete_5/backend
+        working-directory backend
         run: pip install -e ".[dev]"
       - name: Run Office System tests
-        working-directory: YGL_Office_System_Complete_5/backend
+        working-directory backend
         env:
           DATABASE_URL: postgresql+psycopg://ygl_test:test_only@localhost:5432/ygl_office_test
           REDIS_URL: redis://localhost:6379/0
