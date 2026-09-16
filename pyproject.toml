@@ -1,0 +1,38 @@
+[project]
+name = "ygl-office-system-backend"
+version = "0.1.0"
+description = "Y.G.L (Your Global Link) Office System — Phase 8 backend"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115,<0.116",
+    "uvicorn[standard]>=0.30,<0.31",
+    "pydantic>=2.8,<3.0",
+    "pydantic-settings>=2.4,<3.0",
+    "sqlalchemy>=2.0,<2.1",
+    "alembic>=1.13,<1.14",
+    "psycopg[binary]>=3.2,<3.3",
+    "redis>=5.0,<6.0",
+    "argon2-cffi>=23.1,<24.0",
+    "pyjwt>=2.9,<3.0",
+    "pyotp>=2.9,<3.0",
+    "python-multipart>=0.0.9",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3,<9.0",
+    "pytest-asyncio>=0.24,<0.25",
+    "httpx>=0.27,<0.28",
+    "ruff>=0.6,<0.7",
+]
+
+# --- Commission Engine: pinned, read-only dependency -----------------------
+# The Commission Engine is NOT declared here as a normal pip dependency.
+# It is vendored, checksum-locked, under /commission_engine_pinned/ at the
+# repo root (see /scripts/verify_commission_engine_integrity.py). This is a
+# DELIBERATE choice: a normal pip dependency could be silently upgraded by a
+# routine `pip install -U`. The checksum-lock mechanism makes any change to
+# these 18 files an explicit, reviewed, CI-visible event instead.
+#
+# Only backend/app/services/commission_service/ may import commission_engine.
+# This is enforced by scripts/verify_import_boundary.py (CI gate).
